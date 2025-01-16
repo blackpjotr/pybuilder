@@ -1,4 +1,6 @@
-"""Bootstrap"""
+"""Bootstrap."""
+
+from __future__ import annotations
 
 import logging
 import sys
@@ -8,16 +10,18 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from threading import Lock, Thread
 
-from ....info import fs_supports_symlink
-from ..base_embed import BaseEmbed
-from ...wheels import get_wheel
+from virtualenv.info import fs_supports_symlink
+from virtualenv.seed.embed.base_embed import BaseEmbed
+from virtualenv.seed.wheels import get_wheel
 
 from .pip_install.copy import CopyPipInstall
 from .pip_install.symlink import SymlinkPipInstall
 
+LOGGER = logging.getLogger(__name__)
+
 
 class FromAppData(BaseEmbed):
-    def __init__(self, options):
+    def __init__(self, options) -> None:
         super().__init__(options)
         self.symlinks = options.symlink_app_data
 
@@ -44,7 +48,7 @@ class FromAppData(BaseEmbed):
 
             def _install(name, wheel):
                 try:
-                    logging.debug("install %s from wheel %s via %s", name, wheel, installer_class.__name__)
+                    LOGGER.debug("install %s from wheel %s via %s", name, wheel, installer_class.__name__)
                     key = Path(installer_class.__name__) / wheel.path.stem
                     wheel_img = self.app_data.wheel_image(creator.interpreter.version_release_str, key)
                     installer = installer_class(wheel.path, creator, wheel_img)
@@ -53,7 +57,7 @@ class FromAppData(BaseEmbed):
                         if not installer.has_image():
                             installer.build_image()
                     installer.install(creator.interpreter.version_info)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     exceptions[name] = sys.exc_info()
 
             threads = [Thread(target=_install, args=(n, w)) for n, w in name_to_whl.items()]
@@ -69,7 +73,7 @@ class FromAppData(BaseEmbed):
                 raise RuntimeError("\n".join(messages))
 
     @contextmanager
-    def _get_seed_wheels(self, creator):
+    def _get_seed_wheels(self, creator):  # noqa: C901
         name_to_whl, lock, fail = {}, Lock(), {}
 
         def _get(distribution, version):
@@ -92,7 +96,7 @@ class FromAppData(BaseEmbed):
                     if result is not None:
                         break
                 except Exception as exception:
-                    logging.exception("fail")
+                    LOGGER.exception("fail")
                     failure = exception
             if failure:
                 if isinstance(failure, CalledProcessError):
@@ -106,7 +110,7 @@ class FromAppData(BaseEmbed):
                         msg += output
                 else:
                     msg = repr(failure)
-                logging.error(msg)
+                LOGGER.error(msg)
                 with lock:
                     fail[distribution] = version
             else:
@@ -122,17 +126,16 @@ class FromAppData(BaseEmbed):
         for thread in threads:
             thread.join()
         if fail:
-            raise RuntimeError(f"seed failed due to failing to download wheels {', '.join(fail.keys())}")
+            msg = f"seed failed due to failing to download wheels {', '.join(fail.keys())}"
+            raise RuntimeError(msg)
         yield name_to_whl
 
     def installer_class(self, pip_version_tuple):
-        if self.symlinks and pip_version_tuple:
-            # symlink support requires pip 19.3+
-            if pip_version_tuple >= (19, 3):
-                return SymlinkPipInstall
+        if self.symlinks and pip_version_tuple and pip_version_tuple >= (19, 3):  # symlink support requires pip 19.3+
+            return SymlinkPipInstall
         return CopyPipInstall
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         msg = f", via={'symlink' if self.symlinks else 'copy'}, app_data_dir={self.app_data}"
         base = super().__repr__()
         return f"{base[:-1]}{msg}{base[-1]}"

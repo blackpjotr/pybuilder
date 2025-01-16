@@ -1,7 +1,8 @@
-import os
-from pathlib import Path
+from __future__ import annotations
 
-from ..via_template import ViaTemplateActivator
+import os
+
+from virtualenv.activation.via_template import ViaTemplateActivator
 
 
 class BatchActivator(ViaTemplateActivator):
@@ -10,9 +11,13 @@ class BatchActivator(ViaTemplateActivator):
         return interpreter.os == "nt"
 
     def templates(self):
-        yield Path("activate.bat")
-        yield Path("deactivate.bat")
-        yield Path("pydoc.bat")
+        yield "activate.bat"
+        yield "deactivate.bat"
+        yield "pydoc.bat"
+
+    @staticmethod
+    def quote(string):
+        return string
 
     def instantiate_template(self, replacements, template, creator):
         # ensure the text has all newlines as \r\n - required by batch

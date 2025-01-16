@@ -1,19 +1,36 @@
+from __future__ import annotations
+
 import os
+import shlex
 import sys
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 from .activator import Activator
 
-if sys.version_info >= (3, 7):
-    from importlib.resources import read_binary
+if sys.version_info >= (3, 10):
+    from importlib.resources import files
+
+    def read_binary(module_name: str, filename: str) -> bytes:
+        return (files(module_name) / filename).read_bytes()
+
 else:
-    from ...importlib_resources import read_binary
+    from importlib.resources import read_binary
 
 
-class ViaTemplateActivator(Activator, metaclass=ABCMeta):
+class ViaTemplateActivator(Activator, ABC):
     @abstractmethod
     def templates(self):
         raise NotImplementedError
+
+    @staticmethod
+    def quote(string):
+        """
+        Quote strings in the activation script.
+
+        :param string: the string to quote
+        :return: quoted string that works in the activation script
+        """
+        return shlex.quote(string)
 
     def generate(self, creator):
         dest_folder = creator.bin_dir
@@ -23,7 +40,7 @@ class ViaTemplateActivator(Activator, metaclass=ABCMeta):
             creator.pyenv_cfg["prompt"] = self.flag_prompt
         return generated
 
-    def replacements(self, creator, dest_folder):  # noqa: U100
+    def replacements(self, creator, dest_folder):  # noqa: ARG002
         return {
             "__VIRTUAL_PROMPT__": "" if self.flag_prompt is None else self.flag_prompt,
             "__VIRTUAL_ENV__": str(creator.dest),
@@ -37,25 +54,31 @@ class ViaTemplateActivator(Activator, metaclass=ABCMeta):
         for template in templates:
             text = self.instantiate_template(replacements, template, creator)
             dest = to_folder / self.as_name(template)
+            # remove the file if it already exists - this prevents permission
+            # errors when the dest is not writable
+            if dest.exists():
+                dest.unlink()
+            # Powershell assumes Windows 1252 encoding when reading files without BOM
+            encoding = "utf-8-sig" if str(template).endswith(".ps1") else "utf-8"
             # use write_bytes to avoid platform specific line normalization (\n -> \r\n)
-            dest.write_bytes(text.encode("utf-8"))
+            dest.write_bytes(text.encode(encoding))
             generated.append(dest)
         return generated
 
     def as_name(self, template):
-        return template.name
+        return template
 
     def instantiate_template(self, replacements, template, creator):
         # read content as binary to avoid platform specific line normalization (\n -> \r\n)
-        binary = read_binary(self.__module__, str(template))
+        binary = read_binary(self.__module__, template)
         text = binary.decode("utf-8", errors="strict")
         for key, value in replacements.items():
-            value = self._repr_unicode(creator, value)
-            text = text.replace(key, value)
+            value_uni = self._repr_unicode(creator, value)
+            text = text.replace(key, self.quote(value_uni))
         return text
 
     @staticmethod
-    def _repr_unicode(creator, value):  # noqa: U100
+    def _repr_unicode(creator, value):  # noqa: ARG004
         return value  # by default, we just let it be unicode
 
 

@@ -2,15 +2,17 @@
 Virtual environments in the traditional sense are built as reference to the host python. This file allows declarative
 references to elements on the file system, allowing our system to automatically detect what modes it can support given
 the constraints: e.g. can the file system symlink, can the files be read, executed, etc.
-"""
+"""  # noqa: D205
+
+from __future__ import annotations
 
 import os
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from collections import OrderedDict
 from stat import S_IXGRP, S_IXOTH, S_IXUSR
 
-from ....info import fs_is_case_sensitive, fs_supports_symlink
-from ....util.path import copy, make_exe, symlink
+from virtualenv.info import fs_is_case_sensitive, fs_supports_symlink
+from virtualenv.util.path import copy, make_exe, symlink
 
 
 class RefMust:
@@ -25,13 +27,13 @@ class RefWhen:
     SYMLINK = "symlink"
 
 
-class PathRef(metaclass=ABCMeta):
-    """Base class that checks if a file reference can be symlink/copied"""
+class PathRef(ABC):
+    """Base class that checks if a file reference can be symlink/copied."""
 
     FS_SUPPORTS_SYMLINK = fs_supports_symlink()
     FS_CASE_SENSITIVE = fs_is_case_sensitive()
 
-    def __init__(self, src, must=RefMust.NA, when=RefWhen.ANY):
+    def __init__(self, src, must=RefMust.NA, when=RefWhen.ANY) -> None:
         self.must = must
         self.when = when
         self.src = src
@@ -43,7 +45,7 @@ class PathRef(metaclass=ABCMeta):
         self._can_copy = None if self.exists else False
         self._can_symlink = None if self.exists else False
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}(src={self.src})"
 
     @property
@@ -78,7 +80,7 @@ class PathRef(metaclass=ABCMeta):
         return self._can_symlink
 
     @abstractmethod
-    def run(self, creator, symlinks):  # noqa: U100
+    def run(self, creator, symlinks):
         raise NotImplementedError
 
     def method(self, symlinks):
@@ -89,10 +91,10 @@ class PathRef(metaclass=ABCMeta):
         return symlink if symlinks else copy
 
 
-class ExePathRef(PathRef, metaclass=ABCMeta):
-    """Base class that checks if a executable can be references via symlink/copy"""
+class ExePathRef(PathRef, ABC):
+    """Base class that checks if a executable can be references via symlink/copy."""
 
-    def __init__(self, src, must=RefMust.NA, when=RefWhen.ANY):
+    def __init__(self, src, must=RefMust.NA, when=RefWhen.ANY) -> None:
         super().__init__(src, must, when)
         self._can_run = None
 
@@ -116,9 +118,9 @@ class ExePathRef(PathRef, metaclass=ABCMeta):
 
 
 class PathRefToDest(PathRef):
-    """Link a path on the file system"""
+    """Link a path on the file system."""
 
-    def __init__(self, src, dest, must=RefMust.NA, when=RefWhen.ANY):
+    def __init__(self, src, dest, must=RefMust.NA, when=RefWhen.ANY) -> None:
         super().__init__(src, must, when)
         self.dest = dest
 
@@ -133,9 +135,9 @@ class PathRefToDest(PathRef):
 
 
 class ExePathRefToDest(PathRefToDest, ExePathRef):
-    """Link a exe path on the file system"""
+    """Link a exe path on the file system."""
 
-    def __init__(self, src, targets, dest, must=RefMust.NA, when=RefWhen.ANY):
+    def __init__(self, src, targets, dest, must=RefMust.NA, when=RefWhen.ANY) -> None:
         ExePathRef.__init__(self, src, must, when)
         PathRefToDest.__init__(self, src, dest, must, when)
         if not self.FS_CASE_SENSITIVE:
@@ -162,15 +164,15 @@ class ExePathRefToDest(PathRefToDest, ExePathRef):
             if not symlinks:
                 make_exe(link_file)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}(src={self.src}, alias={self.aliases})"
 
 
 __all__ = [
     "ExePathRef",
     "ExePathRefToDest",
-    "PathRefToDest",
     "PathRef",
-    "RefWhen",
+    "PathRefToDest",
     "RefMust",
+    "RefWhen",
 ]

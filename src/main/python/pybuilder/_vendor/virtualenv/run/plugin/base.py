@@ -1,14 +1,10 @@
+from __future__ import annotations
+
 import sys
 from collections import OrderedDict
+from importlib.metadata import entry_points
 
-if sys.version_info >= (3, 8):
-    from importlib.metadata import entry_points
-
-    importlib_metadata_version = ()
-else:
-    from ....importlib_metadata import entry_points, version
-
-    importlib_metadata_version = tuple(int(i) for i in version("importlib_metadata").split(".")[:2])
+importlib_metadata_version = ()
 
 
 class PluginLoader:
@@ -19,8 +15,7 @@ class PluginLoader:
     def entry_points_for(cls, key):
         if sys.version_info >= (3, 10) or importlib_metadata_version >= (3, 6):
             return OrderedDict((e.name, e.load()) for e in cls.entry_points().select(group=key))
-        else:
-            return OrderedDict((e.name, e.load()) for e in cls.entry_points().get(key, {}))
+        return OrderedDict((e.name, e.load()) for e in cls.entry_points().get(key, {}))
 
     @staticmethod
     def entry_points():
@@ -30,7 +25,7 @@ class PluginLoader:
 
 
 class ComponentBuilder(PluginLoader):
-    def __init__(self, interpreter, parser, name, possible):
+    def __init__(self, interpreter, parser, name, possible) -> None:
         self.interpreter = interpreter
         self.name = name
         self._impl_class = None
@@ -44,13 +39,14 @@ class ComponentBuilder(PluginLoader):
             cls._OPTIONS = cls.entry_points_for(key)
         return cls._OPTIONS
 
-    def add_selector_arg_parse(self, name, choices):  # noqa: U100
+    def add_selector_arg_parse(self, name, choices):
         raise NotImplementedError
 
     def handle_selected_arg_parse(self, options):
         selected = getattr(options, self.name)
         if selected not in self.possible:
-            raise RuntimeError(f"No implementation for {self.interpreter}")
+            msg = f"No implementation for {self.interpreter}"
+            raise RuntimeError(msg)
         self._impl_class = self.possible[selected]
         self.populate_selected_argparse(selected, options.app_data)
         return selected
@@ -64,6 +60,6 @@ class ComponentBuilder(PluginLoader):
 
 
 __all__ = [
-    "PluginLoader",
     "ComponentBuilder",
+    "PluginLoader",
 ]

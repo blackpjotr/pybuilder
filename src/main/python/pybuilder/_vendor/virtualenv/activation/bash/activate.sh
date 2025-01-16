@@ -35,6 +35,7 @@ deactivate () {
     fi
 
     unset VIRTUAL_ENV
+    unset VIRTUAL_ENV_PROMPT
     if [ ! "${1-}" = "nondestructive" ] ; then
     # Self destruct!
         unset -f deactivate
@@ -44,15 +45,22 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV='__VIRTUAL_ENV__'
+VIRTUAL_ENV=__VIRTUAL_ENV__
 if ([ "$OSTYPE" = "cygwin" ] || [ "$OSTYPE" = "msys" ]) && $(command -v cygpath &> /dev/null) ; then
     VIRTUAL_ENV=$(cygpath -u "$VIRTUAL_ENV")
 fi
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"
-PATH="$VIRTUAL_ENV/__BIN_NAME__:$PATH"
+PATH="$VIRTUAL_ENV/"__BIN_NAME__":$PATH"
 export PATH
+
+if [ "x"__VIRTUAL_PROMPT__ != x ] ; then
+    VIRTUAL_ENV_PROMPT=__VIRTUAL_PROMPT__
+else
+    VIRTUAL_ENV_PROMPT=$(basename "$VIRTUAL_ENV")
+fi
+export VIRTUAL_ENV_PROMPT
 
 # unset PYTHONHOME if set
 if ! [ -z "${PYTHONHOME+_}" ] ; then
@@ -62,11 +70,7 @@ fi
 
 if [ -z "${VIRTUAL_ENV_DISABLE_PROMPT-}" ] ; then
     _OLD_VIRTUAL_PS1="${PS1-}"
-    if [ "x__VIRTUAL_PROMPT__" != x ] ; then
-        PS1="(__VIRTUAL_PROMPT__) ${PS1-}"
-    else
-        PS1="(`basename \"$VIRTUAL_ENV\"`) ${PS1-}"
-    fi
+    PS1="(${VIRTUAL_ENV_PROMPT}) ${PS1-}"
     export PS1
 fi
 
@@ -80,4 +84,4 @@ pydoc () {
 # The hash command must be called to get it to forget past
 # commands. Without forgetting past commands the $PATH changes
 # we made may not be respected
-hash -r 2>/dev/null
+hash -r 2>/dev/null || true

@@ -32,6 +32,13 @@ import re
 import sys
 from datetime import datetime
 
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
+
 # Plugin install_dependencies_plugin can reload pip_common and pip_utils. Do not use from ... import ...
 from pybuilder.errors import MissingPropertyException, UnspecifiedPluginNameException
 from pybuilder.utils import as_list, np, ap, jp
@@ -273,7 +280,7 @@ class Dependency(object):
     method from class Project to add a dependency to a project.
     """
 
-    def __init__(self, name, version=None, url=None, declaration_only=False):
+    def __init__(self, name, version=None, url=None, declaration_only=False, eager_update=None):
         from pybuilder import pip_common
         if version:
             try:
@@ -284,19 +291,23 @@ class Dependency(object):
                     version = str(pip_common.SpecifierSet(version))
                 except pip_common.InvalidSpecifier:
                     raise ValueError("'%s' must be either PEP 0440 version or a version specifier set" % version)
-        else:
-            try:
-                req = pip_common.Requirement(name)
-                name = req.name
-                version = version or str(req.specifier) or None
-                url = url or req.url
-            except pip_common.InvalidRequirement:
-                pass
+
+        extras = None
+        try:
+            req = pip_common.Requirement(name)
+            name = req.name
+            extras = list(req.extras) if req.extras else None
+            version = version or str(req.specifier) or None
+            url = url or req.url
+        except pip_common.InvalidRequirement:
+            pass
 
         self.name = name
+        self.extras = extras
         self.version = version
         self.url = url
         self.declaration_only = declaration_only
+        self.eager_update = eager_update
 
     def __eq__(self, other):
         if not isinstance(other, Dependency):
@@ -322,8 +333,8 @@ class Dependency(object):
 
     def __repr__(self):
         return (self.name +
-                ("," + self.version if self.version else "") +
-                ("," + self.url if self.url else "") +
+                (("," + self.version) if self.version else "") +
+                (("," + self.url) if self.url else "") +
                 (" (declaration only)" if self.declaration_only else ""))
 
 
@@ -472,7 +483,7 @@ class Project(object):
     def version(self, value):
         self._version = value
         if value.endswith('.dev'):
-            value += datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            value += datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         self._dist_version = value
 
     @property
@@ -559,11 +570,11 @@ class Project(object):
     def plugin_dependencies(self):
         return list(sorted(self._plugin_dependencies))
 
-    def depends_on(self, name, version=None, url=None, declaration_only=False):
-        self._install_dependencies.add(Dependency(name, version, url, declaration_only))
+    def depends_on(self, name, version=None, url=None, declaration_only=False, eager_update=None):
+        self._install_dependencies.add(Dependency(name, version, url, declaration_only, eager_update=eager_update))
 
-    def build_depends_on(self, name, version=None, url=None, declaration_only=False):
-        self._build_dependencies.add(Dependency(name, version, url, declaration_only))
+    def build_depends_on(self, name, version=None, url=None, declaration_only=False, eager_update=None):
+        self._build_dependencies.add(Dependency(name, version, url, declaration_only, eager_update=eager_update))
 
     def depends_on_requirements(self, file, declaration_only=False):
         self._install_dependencies.add(RequirementsFile(file, declaration_only=declaration_only))
@@ -571,8 +582,8 @@ class Project(object):
     def build_depends_on_requirements(self, file):
         self._build_dependencies.add(RequirementsFile(file))
 
-    def plugin_depends_on(self, name, version=None, url=None, declaration_only=False):
-        self._plugin_dependencies.add(Dependency(name, version, url, declaration_only))
+    def plugin_depends_on(self, name, version=None, url=None, declaration_only=False, eager_update=None):
+        self._plugin_dependencies.add(Dependency(name, version, url, declaration_only, eager_update=eager_update))
 
     @property
     def environments(self):

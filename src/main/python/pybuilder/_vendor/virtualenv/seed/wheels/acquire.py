@@ -1,4 +1,6 @@
-"""Bootstrap"""
+"""Bootstrap."""
+
+from __future__ import annotations
 
 import logging
 import sys
@@ -10,11 +12,20 @@ from .bundle import from_bundle
 from .periodic_update import add_wheel_to_update_log
 from .util import Version, Wheel, discover_wheels
 
+LOGGER = logging.getLogger(__name__)
 
-def get_wheel(distribution, version, for_py_version, search_dirs, download, app_data, do_periodic_update, env):
-    """
-    Get a wheel with the given distribution-version-for_py_version trio, by using the extra search dir + download
-    """
+
+def get_wheel(  # noqa: PLR0913
+    distribution,
+    version,
+    for_py_version,
+    search_dirs,
+    download,
+    app_data,
+    do_periodic_update,
+    env,
+):
+    """Get a wheel with the given distribution-version-for_py_version trio, by using the extra search dir + download."""
     # not all wheels are compatible with all python versions, so we need to py version qualify it
     wheel = None
 
@@ -39,9 +50,9 @@ def get_wheel(distribution, version, for_py_version, search_dirs, download, app_
     return wheel
 
 
-def download_wheel(distribution, version_spec, for_py_version, search_dirs, app_data, to_folder, env):
+def download_wheel(distribution, version_spec, for_py_version, search_dirs, app_data, to_folder, env):  # noqa: PLR0913
     to_download = f"{distribution}{version_spec or ''}"
-    logging.debug("download wheel %s %s to %s", to_download, for_py_version, to_folder)
+    LOGGER.debug("download wheel %s %s to %s", to_download, for_py_version, to_folder)
     cmd = [
         sys.executable,
         "-m",
@@ -60,22 +71,22 @@ def download_wheel(distribution, version_spec, for_py_version, search_dirs, app_
     ]
     # pip has no interface in python - must be a new sub-process
     env = pip_wheel_env_run(search_dirs, app_data, env)
-    process = Popen(cmd, env=env, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    process = Popen(cmd, env=env, stdout=PIPE, stderr=PIPE, universal_newlines=True, encoding="utf-8")
     out, err = process.communicate()
     if process.returncode != 0:
         kwargs = {"output": out, "stderr": err}
         raise CalledProcessError(process.returncode, cmd, **kwargs)
     result = _find_downloaded_wheel(distribution, version_spec, for_py_version, to_folder, out)
-    logging.debug("downloaded wheel %s", result.name)
+    LOGGER.debug("downloaded wheel %s", result.name)
     return result
 
 
 def _find_downloaded_wheel(distribution, version_spec, for_py_version, to_folder, out):
     for line in out.splitlines():
-        line = line.lstrip()
+        stripped_line = line.lstrip()
         for marker in ("Saved ", "File was already downloaded "):
-            if line.startswith(marker):
-                return Wheel(Path(line[len(marker) :]).absolute())
+            if stripped_line.startswith(marker):
+                return Wheel(Path(stripped_line[len(marker) :]).absolute())
     # if for some reason the output does not match fallback to the latest version with that spec
     return find_compatible_in_house(distribution, version_spec, for_py_version, to_folder)
 
@@ -83,7 +94,7 @@ def _find_downloaded_wheel(distribution, version_spec, for_py_version, to_folder
 def find_compatible_in_house(distribution, version_spec, for_py_version, in_folder):
     wheels = discover_wheels(in_folder, distribution, None, for_py_version)
     start, end = 0, len(wheels)
-    if version_spec is not None and version_spec != "":
+    if version_spec is not None and version_spec:
         if version_spec.startswith("<"):
             from_pos, op = 1, lt
         elif version_spec.startswith("=="):
@@ -110,13 +121,14 @@ def pip_wheel_env_run(search_dirs, app_data, env):
         env=env,
     )
     if wheel is None:
-        raise RuntimeError("could not find the embedded pip")
+        msg = "could not find the embedded pip"
+        raise RuntimeError(msg)
     env["PYTHONPATH"] = str(wheel.path)
     return env
 
 
 __all__ = [
-    "get_wheel",
     "download_wheel",
+    "get_wheel",
     "pip_wheel_env_run",
 ]

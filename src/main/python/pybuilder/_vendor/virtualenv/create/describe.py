@@ -1,16 +1,18 @@
-from abc import ABCMeta
+from __future__ import annotations
+
+from abc import ABC
 from collections import OrderedDict
 from pathlib import Path
 
-from ..info import IS_WIN
+from virtualenv.info import IS_WIN
 
 
-class Describe(metaclass=ABCMeta):
-    """Given a host interpreter tell us information about what the created interpreter might look like"""
+class Describe:
+    """Given a host interpreter tell us information about what the created interpreter might look like."""
 
     suffix = ".exe" if IS_WIN else ""
 
-    def __init__(self, dest, interpreter):
+    def __init__(self, dest, interpreter) -> None:
         self.interpreter = interpreter
         self.dest = dest
         self._stdlib = None
@@ -58,11 +60,11 @@ class Describe(metaclass=ABCMeta):
 
     def _calc_config_vars(self, to):
         sys_vars = self.interpreter.sysconfig_vars
-        return {k: (to if v.startswith(self.interpreter.prefix) else v) for k, v in sys_vars.items()}
+        return {k: (to if v is not None and v.startswith(self.interpreter.prefix) else v) for k, v in sys_vars.items()}
 
     @classmethod
-    def can_describe(cls, interpreter):  # noqa: U100
-        """Knows means it knows how the output will look"""
+    def can_describe(cls, interpreter):  # noqa: ARG003
+        """Knows means it knows how the output will look."""
         return True
 
     @property
@@ -75,32 +77,26 @@ class Describe(metaclass=ABCMeta):
 
     @classmethod
     def exe_stem(cls):
-        """executable name without suffix - there seems to be no standard way to get this without creating it"""
+        """Executable name without suffix - there seems to be no standard way to get this without creating it."""
         raise NotImplementedError
 
     def script(self, name):
         return self.script_dir / f"{name}{self.suffix}"
 
 
-class Python2Supports(Describe, metaclass=ABCMeta):
+class Python3Supports(Describe, ABC):
     @classmethod
     def can_describe(cls, interpreter):
-        return interpreter.version_info.major == 2 and super().can_describe(interpreter)
+        return interpreter.version_info.major == 3 and super().can_describe(interpreter)  # noqa: PLR2004
 
 
-class Python3Supports(Describe, metaclass=ABCMeta):
-    @classmethod
-    def can_describe(cls, interpreter):
-        return interpreter.version_info.major == 3 and super().can_describe(interpreter)
-
-
-class PosixSupports(Describe, metaclass=ABCMeta):
+class PosixSupports(Describe, ABC):
     @classmethod
     def can_describe(cls, interpreter):
         return interpreter.os == "posix" and super().can_describe(interpreter)
 
 
-class WindowsSupports(Describe, metaclass=ABCMeta):
+class WindowsSupports(Describe, ABC):
     @classmethod
     def can_describe(cls, interpreter):
         return interpreter.os == "nt" and super().can_describe(interpreter)
@@ -108,8 +104,7 @@ class WindowsSupports(Describe, metaclass=ABCMeta):
 
 __all__ = [
     "Describe",
-    "Python2Supports",
-    "Python3Supports",
     "PosixSupports",
+    "Python3Supports",
     "WindowsSupports",
 ]

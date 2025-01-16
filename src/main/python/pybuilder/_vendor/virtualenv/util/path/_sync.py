@@ -1,31 +1,37 @@
+from __future__ import annotations
+
 import logging
 import os
 import shutil
+import sys
 from stat import S_IWUSR
+
+LOGGER = logging.getLogger(__name__)
 
 
 def ensure_dir(path):
     if not path.exists():
-        logging.debug("create folder %s", str(path))
+        LOGGER.debug("create folder %s", str(path))
         os.makedirs(str(path))
 
 
 def ensure_safe_to_do(src, dest):
     if src == dest:
-        raise ValueError(f"source and destination is the same {src}")
+        msg = f"source and destination is the same {src}"
+        raise ValueError(msg)
     if not dest.exists():
         return
     if dest.is_dir() and not dest.is_symlink():
-        logging.debug("remove directory %s", dest)
+        LOGGER.debug("remove directory %s", dest)
         safe_delete(dest)
     else:
-        logging.debug("remove file %s", dest)
+        LOGGER.debug("remove file %s", dest)
         dest.unlink()
 
 
 def symlink(src, dest):
     ensure_safe_to_do(src, dest)
-    logging.debug("symlink %s", _Debug(src, dest))
+    LOGGER.debug("symlink %s", _Debug(src, dest))
     dest.symlink_to(src, target_is_directory=src.is_dir())
 
 
@@ -33,7 +39,7 @@ def copy(src, dest):
     ensure_safe_to_do(src, dest)
     is_dir = src.is_dir()
     method = copytree if is_dir else shutil.copy
-    logging.debug("copy %s", _Debug(src, dest))
+    LOGGER.debug("copy %s", _Debug(src, dest))
     method(str(src), str(dest))
 
 
@@ -49,30 +55,31 @@ def copytree(src, dest):
 
 
 def safe_delete(dest):
-    def onerror(func, path, exc_info):  # noqa: U100
+    def onerror(func, path, exc_info):  # noqa: ARG001
         if not os.access(path, os.W_OK):
             os.chmod(path, S_IWUSR)
             func(path)
         else:
-            raise
+            raise  # noqa: PLE0704
 
-    shutil.rmtree(str(dest), ignore_errors=True, onerror=onerror)
+    kwargs = {"onexc" if sys.version_info >= (3, 12) else "onerror": onerror}
+    shutil.rmtree(str(dest), ignore_errors=True, **kwargs)
 
 
 class _Debug:
-    def __init__(self, src, dest):
+    def __init__(self, src, dest) -> None:
         self.src = src
         self.dest = dest
 
-    def __str__(self):
-        return f"{'directory ' if self.src.is_dir() else ''}{str(self.src)} to {str(self.dest)}"
+    def __str__(self) -> str:
+        return f"{'directory ' if self.src.is_dir() else ''}{self.src!s} to {self.dest!s}"
 
 
 __all__ = [
-    "ensure_dir",
-    "symlink",
     "copy",
-    "symlink",
     "copytree",
+    "ensure_dir",
     "safe_delete",
+    "symlink",
+    "symlink",
 ]

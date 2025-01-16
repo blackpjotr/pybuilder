@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import sys
 
@@ -14,10 +16,9 @@ MAX_LEVEL = max(LEVELS.keys())
 LOGGER = logging.getLogger()
 
 
-def setup_report(verbosity, show_pid=False):
+def setup_report(verbosity, show_pid=False):  # noqa: FBT002
     _clean_handlers(LOGGER)
-    if verbosity > MAX_LEVEL:
-        verbosity = MAX_LEVEL  # pragma: no cover
+    verbosity = min(verbosity, MAX_LEVEL)  # pragma: no cover
     level = LEVELS[verbosity]
     msg_format = "%(message)s"
     if level <= logging.DEBUG:
@@ -32,7 +33,7 @@ def setup_report(verbosity, show_pid=False):
     stream_handler.setFormatter(formatter)
     LOGGER.addHandler(stream_handler)
     level_name = logging.getLevelName(level)
-    logging.debug("setup logging to %s", level_name)
+    LOGGER.debug("setup logging to %s", level_name)
     logging.getLogger("distlib").setLevel(logging.ERROR)
     return verbosity
 

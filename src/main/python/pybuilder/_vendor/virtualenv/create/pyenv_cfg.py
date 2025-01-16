@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import logging
+import os
 from collections import OrderedDict
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PyEnvCfg:
-    def __init__(self, content, path):
+    def __init__(self, content, path) -> None:
         self.content = content
         self.path = path
 
@@ -27,11 +32,12 @@ class PyEnvCfg:
         return content
 
     def write(self):
-        logging.debug("write %s", self.path)
+        LOGGER.debug("write %s", self.path)
         text = ""
         for key, value in self.content.items():
-            line = f"{key} = {value}"
-            logging.debug("\t%s", line)
+            normalized_value = os.path.realpath(value) if value and os.path.exists(value) else value
+            line = f"{key} = {normalized_value}"
+            LOGGER.debug("\t%s", line)
             text += line
             text += "\n"
         self.path.write_text(text, encoding="utf-8")
@@ -40,20 +46,20 @@ class PyEnvCfg:
         self.content = self._read_values(self.path)
         return self.content
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value) -> None:
         self.content[key] = value
 
     def __getitem__(self, key):
         return self.content[key]
 
-    def __contains__(self, item):
+    def __contains__(self, item) -> bool:
         return item in self.content
 
     def update(self, other):
         self.content.update(other)
         return self
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}(path={self.path})"
 
 

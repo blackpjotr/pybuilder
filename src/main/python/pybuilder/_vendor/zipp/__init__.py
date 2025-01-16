@@ -1,11 +1,26 @@
-import io
-import posixpath
-import zipfile
-import itertools
-import contextlib
-import pathlib
+"""
+A Path-like interface for zipfiles.
 
-from .py310compat import text_encoding
+This codebase is shared between zipfile.Path in the stdlib
+and zipp in PyPI. See
+https://github.com/python/importlib_metadata/wiki/Development-Methodology
+for more detail.
+"""
+
+import functools
+import io
+import itertools
+import pathlib
+import posixpath
+import re
+import stat
+import sys
+import zipfile
+
+from .compat.py310 import text_encoding
+from .glob import Translator
+
+from ._functools import save_method_args
 
 
 __all__ = ['Path']
@@ -33,7 +48,7 @@ def _parents(path):
 def _ancestry(path):
     """
     Given a path with elements separated by
-    posixpath.sep, generate all elements of that path
+    posixpath.sep, generate all elements of that path.
 
     >>> list(_ancestry('b/d'))
     ['b/d', 'b']
@@ -45,9 +60,14 @@ def _ancestry(path):
     ['b']
     >>> list(_ancestry(''))
     []
+
+    Multiple separators are treated like a single.
+
+    >>> list(_ancestry('//b//d///f//'))
+    ['//b//d///f', '//b//d', '//b']
     """
     path = path.rstrip(posixpath.sep)
-    while path and path != posixpath.sep:
+    while path.rstrip(posixpath.sep):
         yield path
         path, tail = posixpath.split(path)
 
@@ -69,13 +89,12 @@ class InitializedState:
     Mix-in to save the initialization state for pickling.
     """
 
+    @save_method_args
     def __init__(self, *args, **kwargs):
-        self.__args = args
-        self.__kwargs = kwargs
         super().__init__(*args, **kwargs)
 
     def __getstate__(self):
-        return self.__args, self.__kwargs
+        return self._saved___init__.args, self._saved___init__.kwargs
 
     def __setstate__(self, state):
         args, kwargs = state
@@ -86,6 +105,11 @@ class CompleteDirs(InitializedState, zipfile.ZipFile):
     """
     A ZipFile subclass that ensures that implied directories
     are always included in the namelist.
+
+    >>> list(CompleteDirs._implied_dirs(['foo/bar.txt', 'foo/bar/baz.txt']))
+    ['foo/', 'foo/bar/']
+    >>> list(CompleteDirs._implied_dirs(['foo/bar.txt', 'foo/bar/baz.txt', 'foo/bar/']))
+    ['foo/']
     """
 
     @staticmethod
@@ -95,7 +119,7 @@ class CompleteDirs(InitializedState, zipfile.ZipFile):
         return _dedupe(_difference(as_dirs, names))
 
     def namelist(self):
-        names = super(CompleteDirs, self).namelist()
+        names = super().namelist()
         return names + list(self._implied_dirs(names))
 
     def _name_set(self):
@@ -110,6 +134,17 @@ class CompleteDirs(InitializedState, zipfile.ZipFile):
         dirname = name + '/'
         dir_match = name not in names and dirname in names
         return dirname if dir_match else name
+
+    def getinfo(self, name):
+        """
+        Supplement getinfo for implied dirs.
+        """
+        try:
+            return super().getinfo(name)
+        except KeyError:
+            if not name.endswith('/') or name not in self._name_set():
+                raise
+            return zipfile.ZipInfo(filename=name)
 
     @classmethod
     def make(cls, source):
@@ -130,6 +165,16 @@ class CompleteDirs(InitializedState, zipfile.ZipFile):
         source.__class__ = cls
         return source
 
+    @classmethod
+    def inject(cls, zf: zipfile.ZipFile) -> zipfile.ZipFile:
+        """
+        Given a writable zip file zf, inject directory entries for
+        any directories implied by the presence of children.
+        """
+        for name in cls._implied_dirs(zf.namelist()):
+            zf.writestr(name, b"")
+        return zf
+
 
 class FastLookup(CompleteDirs):
     """
@@ -138,21 +183,33 @@ class FastLookup(CompleteDirs):
     """
 
     def namelist(self):
-        with contextlib.suppress(AttributeError):
-            return self.__names
-        self.__names = super(FastLookup, self).namelist()
-        return self.__names
+        return self._namelist
+
+    @functools.cached_property
+    def _namelist(self):
+        return super().namelist()
 
     def _name_set(self):
-        with contextlib.suppress(AttributeError):
-            return self.__lookup
-        self.__lookup = super(FastLookup, self)._name_set()
-        return self.__lookup
+        return self._name_set_prop
+
+    @functools.cached_property
+    def _name_set_prop(self):
+        return super()._name_set()
+
+
+def _extract_text_encoding(encoding=None, *args, **kwargs):
+    # compute stack level so that the caller of the caller sees any warning.
+    is_pypy = sys.implementation.name == 'pypy'
+    stack_level = 3 + is_pypy
+    return text_encoding(encoding, stack_level), args, kwargs
 
 
 class Path:
     """
-    A pathlib-compatible interface for zip files.
+    A :class:`importlib.resources.abc.Traversable` interface for zip files.
+
+    Implements many of the features users enjoy from
+    :class:`pathlib.Path`.
 
     Consider a zip file with this structure::
 
@@ -172,13 +229,13 @@ class Path:
 
     Path accepts the zipfile object itself or a filename
 
-    >>> root = Path(zf)
+    >>> path = Path(zf)
 
     From there, several path operations are available.
 
     Directory iteration (including the zip file itself):
 
-    >>> a, b = root.iterdir()
+    >>> a, b = path.iterdir()
     >>> a
     Path('mem/abcde.zip', 'a.txt')
     >>> b
@@ -199,7 +256,7 @@ class Path:
 
     Read text:
 
-    >>> c.read_text()
+    >>> c.read_text(encoding='utf-8')
     'content of c'
 
     existence:
@@ -216,16 +273,38 @@ class Path:
     'mem/abcde.zip/b/c.txt'
 
     At the root, ``name``, ``filename``, and ``parent``
-    resolve to the zipfile. Note these attributes are not
-    valid and will raise a ``ValueError`` if the zipfile
-    has no filename.
+    resolve to the zipfile.
 
-    >>> root.name
+    >>> str(path)
+    'mem/abcde.zip/'
+    >>> path.name
     'abcde.zip'
-    >>> str(root.filename).replace(os.sep, posixpath.sep)
-    'mem/abcde.zip'
-    >>> str(root.parent)
+    >>> path.filename == pathlib.Path('mem/abcde.zip')
+    True
+    >>> str(path.parent)
     'mem'
+
+    If the zipfile has no filename, such attributes are not
+    valid and accessing them will raise an Exception.
+
+    >>> zf.filename = None
+    >>> path.name
+    Traceback (most recent call last):
+    ...
+    TypeError: ...
+
+    >>> path.filename
+    Traceback (most recent call last):
+    ...
+    TypeError: ...
+
+    >>> path.parent
+    Traceback (most recent call last):
+    ...
+    TypeError: ...
+
+    # workaround python/cpython#106763
+    >>> pass
     """
 
     __repr = "{self.__class__.__name__}({self.root.filename!r}, {self.at!r})"
@@ -243,6 +322,18 @@ class Path:
         self.root = FastLookup.make(root)
         self.at = at
 
+    def __eq__(self, other):
+        """
+        >>> Path(zipfile.ZipFile(io.BytesIO(), 'w')) == 'foo'
+        False
+        """
+        if self.__class__ is not other.__class__:
+            return NotImplemented
+        return (self.root, self.at) == (other.root, other.at)
+
+    def __hash__(self):
+        return hash((self.root, self.at))
+
     def open(self, mode='r', *args, pwd=None, **kwargs):
         """
         Open this entry as text or binary following the semantics
@@ -252,40 +343,43 @@ class Path:
         if self.is_dir():
             raise IsADirectoryError(self)
         zip_mode = mode[0]
-        if not self.exists() and zip_mode == 'r':
+        if zip_mode == 'r' and not self.exists():
             raise FileNotFoundError(self)
         stream = self.root.open(self.at, zip_mode, pwd=pwd)
         if 'b' in mode:
             if args or kwargs:
                 raise ValueError("encoding args invalid for binary operation")
             return stream
-        else:
-            kwargs["encoding"] = text_encoding(kwargs.get("encoding"))
-        return io.TextIOWrapper(stream, *args, **kwargs)
+        # Text mode:
+        encoding, args, kwargs = _extract_text_encoding(*args, **kwargs)
+        return io.TextIOWrapper(stream, encoding, *args, **kwargs)
+
+    def _base(self):
+        return pathlib.PurePosixPath(self.at or self.root.filename)
 
     @property
     def name(self):
-        return pathlib.Path(self.at).name or self.filename.name
+        return self._base().name
 
     @property
     def suffix(self):
-        return pathlib.Path(self.at).suffix or self.filename.suffix
+        return self._base().suffix
 
     @property
     def suffixes(self):
-        return pathlib.Path(self.at).suffixes or self.filename.suffixes
+        return self._base().suffixes
 
     @property
     def stem(self):
-        return pathlib.Path(self.at).stem or self.filename.stem
+        return self._base().stem
 
     @property
     def filename(self):
         return pathlib.Path(self.root.filename).joinpath(self.at)
 
     def read_text(self, *args, **kwargs):
-        kwargs["encoding"] = text_encoding(kwargs.get("encoding"))
-        with self.open('r', *args, **kwargs) as strm:
+        encoding, args, kwargs = _extract_text_encoding(*args, **kwargs)
+        with self.open('r', encoding, *args, **kwargs) as strm:
             return strm.read()
 
     def read_bytes(self):
@@ -312,6 +406,32 @@ class Path:
             raise ValueError("Can't listdir a file")
         subs = map(self._next, self.root.namelist())
         return filter(self._is_child, subs)
+
+    def match(self, path_pattern):
+        return pathlib.PurePosixPath(self.at).match(path_pattern)
+
+    def is_symlink(self):
+        """
+        Return whether this path is a symlink.
+        """
+        info = self.root.getinfo(self.at)
+        mode = info.external_attr >> 16
+        return stat.S_ISLNK(mode)
+
+    def glob(self, pattern):
+        if not pattern:
+            raise ValueError(f"Unacceptable pattern: {pattern!r}")
+
+        prefix = re.escape(self.at)
+        tr = Translator(seps='/')
+        matches = re.compile(prefix + tr.translate(pattern)).fullmatch
+        return map(self._next, filter(matches, self.root.namelist()))
+
+    def rglob(self, pattern):
+        return self.glob(f'**/{pattern}')
+
+    def relative_to(self, other, *extra):
+        return posixpath.relpath(str(self), str(other.joinpath(*extra)))
 
     def __str__(self):
         return posixpath.join(self.root.filename, self.at)

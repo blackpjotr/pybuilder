@@ -1,14 +1,16 @@
-from abc import ABCMeta
+from __future__ import annotations
+
+import re
+from abc import ABC
 from collections import OrderedDict
 from pathlib import Path
 
-from ....describe import PosixSupports, WindowsSupports
-from ..ref import RefMust, RefWhen
+from virtualenv.create.describe import PosixSupports, WindowsSupports
+from virtualenv.create.via_global_ref.builtin.ref import RefMust, RefWhen
+from virtualenv.create.via_global_ref.builtin.via_global_self_do import ViaGlobalRefVirtualenvBuiltin
 
-from ..via_global_self_do import ViaGlobalRefVirtualenvBuiltin
 
-
-class CPython(ViaGlobalRefVirtualenvBuiltin, metaclass=ABCMeta):
+class CPython(ViaGlobalRefVirtualenvBuiltin, ABC):
     @classmethod
     def can_describe(cls, interpreter):
         return interpreter.implementation == "CPython" and super().can_describe(interpreter)
@@ -18,19 +20,18 @@ class CPython(ViaGlobalRefVirtualenvBuiltin, metaclass=ABCMeta):
         return "python"
 
 
-class CPythonPosix(CPython, PosixSupports, metaclass=ABCMeta):
-    """Create a CPython virtual environment on POSIX platforms"""
+class CPythonPosix(CPython, PosixSupports, ABC):
+    """Create a CPython virtual environment on POSIX platforms."""
 
     @classmethod
     def _executables(cls, interpreter):
         host_exe = Path(interpreter.system_executable)
         major, minor = interpreter.version_info.major, interpreter.version_info.minor
         targets = OrderedDict((i, None) for i in ["python", f"python{major}", f"python{major}.{minor}", host_exe.name])
-        must = RefMust.COPY if interpreter.version_info.major == 2 else RefMust.NA
-        yield host_exe, list(targets.keys()), must, RefWhen.ANY
+        yield host_exe, list(targets.keys()), RefMust.NA, RefWhen.ANY
 
 
-class CPythonWindows(CPython, WindowsSupports, metaclass=ABCMeta):
+class CPythonWindows(CPython, WindowsSupports, ABC):
     @classmethod
     def _executables(cls, interpreter):
         # symlink of the python executables does not work reliably, copy always instead
@@ -50,15 +51,23 @@ class CPythonWindows(CPython, WindowsSupports, metaclass=ABCMeta):
 
 def is_mac_os_framework(interpreter):
     if interpreter.platform == "darwin":
-        framework_var = interpreter.sysconfig_vars.get("PYTHONFRAMEWORK")
-        value = "Python3" if interpreter.version_info.major == 3 else "Python"
-        return framework_var == value
+        return interpreter.sysconfig_vars.get("PYTHONFRAMEWORK") == "Python3"
     return False
 
+
+def is_macos_brew(interpreter):
+    return interpreter.platform == "darwin" and _BREW.fullmatch(interpreter.system_prefix) is not None
+
+
+_BREW = re.compile(
+    r"/(usr/local|opt/homebrew)/(opt/python@3\.\d{1,2}|Cellar/python@3\.\d{1,2}/3\.\d{1,2}\.\d{1,2})/Frameworks/"
+    r"Python\.framework/Versions/3\.\d{1,2}",
+)
 
 __all__ = [
     "CPython",
     "CPythonPosix",
     "CPythonWindows",
     "is_mac_os_framework",
+    "is_macos_brew",
 ]
