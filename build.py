@@ -87,7 +87,7 @@ urls = {"Bug Tracker": "https://github.com/pybuilder/pybuilder/issues",
         "Twitter": "https://twitter.com/pybuilder_",
         }
 license = "Apache-2.0"
-version = "0.13.17.dev"
+version = "0.13.17"
 
 requires_python = ">=3.9"
 
